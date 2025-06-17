@@ -109,9 +109,9 @@ def get_dist():
     start_count = int(data['start_count'])
     score_type = data['score_type']
     elixir = bool(data['elixir'])
-    exlixir_option = []
+    elixir_option = []
     if elixir:
-        exlixir_option = data["elixir_option"]
+        elixir_option = data["elixir_option"]
     bold = bool(data['bold'])
     bold_space = 5.0
     if bold:
@@ -135,7 +135,7 @@ def get_dist():
     if not is_crit_rate:
         nums[2*LENGTH : 3*LENGTH] = 0
 
-    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, exlixir_option)
+    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, elixir_option)
     y = calc.calculate() * 100 # 伸び幅の分布をパーセント表示に変換
     x = np.zeros(y.shape[0])
     for i in range(x.shape[0]):
@@ -199,9 +199,9 @@ def get_data():
     start_count = int(data['start_count'])
     score_type = data['score_type']
     elixir = bool(data['elixir'])
-    exlixir_option = []
+    elixir_option = []
     if elixir:
-        exlixir_option = data["elixir_option"]
+        elixir_option = data["elixir_option"]
 
     # NUMSをリセット
     nums = np.copy(NUMS_DEFAULT)
@@ -221,7 +221,7 @@ def get_data():
     if not is_crit_rate:
         nums[2*LENGTH : 3*LENGTH] = 0
 
-    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, exlixir_option)
+    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, elixir_option)
     y = calc.calculate()
     x = np.zeros(y.shape[0])
     for i in range(x.shape[0]):
