@@ -6,3 +6,4 @@ matplotlib
 pillow
 google-cloud-vision
 requests
+japanize_matplotlib

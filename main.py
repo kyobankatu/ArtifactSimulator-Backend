@@ -12,15 +12,23 @@ import os
 import re
 import requests
 import base64
+import itertools
+import japanize_matplotlib
 
 # 定数
 CRIT = np.array([54, 62, 70, 78])
 ATK = np.array([41, 47, 53, 58])
 HP = np.array([41, 47, 53, 58])
 EM = np.array([40, 48, 52, 58])
+# 伸び幅の候補数
+LENGTH = 4
+# 会心、攻撃がついた場合のスコアの伸び
 NUMS_DEFAULT = np.array([41, 47, 53, 58, 54, 62, 70, 78, 54, 62, 70, 78, 0, 0, 0, 0])
+# フォント設定
 FONT_TYPE = "meiryo"
-
+# bold表示の最小幅
+MIN_SPACE = 5
+# メインオプションの対応表
 MAIN_OP = [("HP", "hp%"), 
            ("攻撃力", "atk%"), 
            ("防御力", "def%"), 
@@ -98,39 +106,76 @@ def get_dist():
     init_score = float(data['init'])
     score = float(data['score'])
     count = int(data['count'])
+    start_count = int(data['start_count'])
     score_type = data['score_type']
+    elixir = bool(data['elixir'])
+    exlixir_option = []
+    if elixir:
+        exlixir_option = data["elixir_option"]
+    bold = bool(data['bold'])
+    bold_space = 5.0
+    if bold:
+        bold_space = float(data['bold_space'])
 
     # NUMSをリセット
     nums = np.copy(NUMS_DEFAULT)
     # score_typeが熟知なら変更
     if score_type == "em" :
-        nums[0:4] = EM
+        nums[0:LENGTH] = EM
 
     # オプションに応じてNUMSを調整
     if score_type == "atk" and not is_atk:
-        nums[0:4] = 0
+        nums[0 : LENGTH] = 0
     if score_type == "hp" and not is_hp:
-        nums[0:4] = 0
-    if score_type == "e" and not is_em:
-        nums[0:4] = 0
+        nums[0 : LENGTH] = 0
+    if score_type == "em" and not is_em:
+        nums[0 : LENGTH] = 0
     if not is_crit_dmg:
-        nums[4:8] = 0
+        nums[LENGTH : 2*LENGTH] = 0
     if not is_crit_rate:
-        nums[8:12] = 0
+        nums[2*LENGTH : 3*LENGTH] = 0
 
-    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, score_type)
-    y = calc.calculate()
+    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, exlixir_option)
+    y = calc.calculate() * 100 # 伸び幅の分布をパーセント表示に変換
     x = np.zeros(y.shape[0])
     for i in range(x.shape[0]):
         x[i] = i / 10.0
 
     # グラフを作成
     fig, ax = plt.subplots(figsize=(6,3))
-    ax.bar(init_score + x, y, width=0.05)
+    if bold:
+        # 幅をつけた棒グラフを描画
+        start = init_score // bold_space * bold_space
+        end = (init_score + x[-1]) // bold_space * bold_space + bold_space
+        bins = np.linspace(start, end, (int)((end - start) // bold_space) + 1)
+        indices = np.digitize(x + init_score, bins) - 1
+        y_sum = np.zeros(len(bins) - 1)
+        for i in range(len(y)):
+            y_sum[indices[i]] += y[i]
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+        ax.bar(bin_centers, y_sum, width=bold_space, align='center')
+        ax.set_xticks(bins)
+
+        x_labels = []
+        next_label = -1
+        for bin in bins:
+          if next_label <= bin:
+            next_label = bin + MIN_SPACE
+            x_labels.append(str(bin))
+          else:
+            x_labels.append('')
+
+        ax.set_xticklabels(x_labels)
+    else:
+        # 通常の棒グラフを描画
+        ax.bar(init_score + x, y, width=0.05)
+
+    ax.set_ylabel("確率[%]")
+    ax.set_xlabel("スコア")
 
     # グラフをメモリ内の画像として保存
     img = io.BytesIO()
-    plt.savefig(img, format='png')
+    plt.savefig(img, format='png', bbox_inches="tight")
     img.seek(0)
     plt.close()
 
@@ -151,27 +196,32 @@ def get_data():
     init_score = float(data['init'])
     score = float(data['score'])
     count = int(data['count'])
+    start_count = int(data['start_count'])
     score_type = data['score_type']
+    elixir = bool(data['elixir'])
+    exlixir_option = []
+    if elixir:
+        exlixir_option = data["elixir_option"]
 
     # NUMSをリセット
     nums = np.copy(NUMS_DEFAULT)
     # score_typeが熟知なら変更
     if score_type == "em" :
-        nums[0:4] = EM
+        nums[0 : LENGTH] = EM
 
     # オプションに応じてNUMSを調整
     if score_type == "atk" and not is_atk:
-        nums[0:4] = 0
+        nums[0 : LENGTH] = 0
     if score_type == "hp" and not is_hp:
-        nums[0:4] = 0
+        nums[0 : LENGTH] = 0
     if score_type == "em" and not is_em:
-        nums[0:4] = 0
+        nums[0 : LENGTH] = 0
     if not is_crit_dmg:
-        nums[4:8] = 0
+        nums[LENGTH : 2*LENGTH] = 0
     if not is_crit_rate:
-        nums[8:12] = 0
+        nums[2*LENGTH : 3*LENGTH] = 0
 
-    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, score_type)
+    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, exlixir_option)
     y = calc.calculate()
     x = np.zeros(y.shape[0])
     for i in range(x.shape[0]):
@@ -287,7 +337,9 @@ class ArtifactReader():
             self.init_score = self.getScore_em(self.result)
         
         # レベル
-        self.level = int(self.find(self.result, r'\+')[0].split("\n")[0])
+        self.level_str = self.find(self.result, r'\+')[0].split("\n")[0]
+        self.level_str.replace("D", "0")
+        self.level = int(self.level_str)
         if self.level < 0 or self.level > 20:
             self.level = 0
 
@@ -367,7 +419,7 @@ class ArtifactReader():
         return self.getFigure_em(self.find(result.replace(" ", ""),r'元素熟知\+')) > 0
 
 class Calculator():
-    def __init__(self, option, main_op , is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, score_type):
+    def __init__(self, option, main_op , is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, elixir_option):
         self.option = option
         self.main_op = main_op
         self.is_crit_dmg = is_crit_dmg
@@ -379,7 +431,10 @@ class Calculator():
         self.init_score = init_score
         self.score = score
         self.count = count
+        self.start_count = start_count
         self.score_type = score_type
+        self.elixir = elixir
+        self.elixir_option = elixir_option
 
     # スコアの伸びの分布を計算 (indexが伸び幅の10倍整数)
     def getDistribution(self, nums, count):
@@ -393,6 +448,49 @@ class Calculator():
         
         return dp[count]
     
+    # スコアの伸びの分布を計算 (indexが伸び幅の10倍整数、エリクサーによる最低保証を考慮)
+    def getDistributionElixir(self, nums, count, start_count, target_indexes):
+        dp = np.zeros((count + 1, 3, max(nums) * count + 1))
+        if start_count < 4:
+            dp[0, 0, 0] = 1.0
+        elif start_count == 4:
+            dp[0, 1, 0] = 1.0
+        else:
+            dp[0, 2, 0] = 1.0
+        target_num_cyc = itertools.cycle(np.array([nums[x] for idx in target_indexes for x in range(idx, idx + LENGTH)]))
+
+        for i in range(count):
+            for num_idx, num in enumerate(nums):
+                if self.isInRange(target_indexes, LENGTH, num_idx):
+                    prev_01 = dp[i, :2, :dp[0].shape[1] - num]
+                    prev_2 = dp[i, 2, :dp[0].shape[1] - num]
+                    dp[i + 1, 1:, num:] += prev_01 / nums.shape[0]
+                    dp[i + 1, 2, num:] += prev_2 / nums.shape[0]
+                else:
+                    if i + start_count < 3:
+                        prev = dp[i, :, :dp[0].shape[1] - num]
+                        dp[i + 1, :, num:] += prev / nums.shape[0]
+                    elif i + start_count == 3:
+                        prev_12 = dp[i, 1:, :dp[0].shape[1] - num]
+                        dp[i + 1, 1:, num:] += prev_12 / nums.shape[0]
+                        target_num = next(target_num_cyc)
+                        prev_0 = dp[i, 0, :dp[0].shape[1] - target_num]
+                        dp[i + 1, 1, target_num:] += prev_0 / nums.shape[0]
+                    else:
+                        prev_2 = dp[i, 2, :dp[0].shape[1] - num]
+                        dp[i + 1, 2, num:] += prev_2 / nums.shape[0]
+                        target_num = next(target_num_cyc)
+                        prev_1 = dp[i, 1, :dp[0].shape[1] - target_num]
+                        dp[i + 1, 2, target_num:] += prev_1 / nums.shape[0]
+
+        return np.sum(dp[count, :], axis=0)
+    
+    def isInRange(self, start_indexes, range, target_index):
+        for start_index in start_indexes:
+            if start_index <= target_index < start_index + range:
+                return True
+        return False
+
     def getScore(self, x, y, percent):
         if percent == 0:
             for i in range(x.shape[0] - 1, -1, -1):
@@ -411,31 +509,70 @@ class Calculator():
 
     def calculate(self):
         if self.option == 4:
-            y = self.getDistribution(self.nums, self.count)
+            y = None
+            if self.elixir:
+                target_indexes = []
+                for op in self.elixir_option:
+                    if op == "crit-rate":
+                        target_indexes.append(2*LENGTH)
+                    elif op == "crit-dmg":
+                        target_indexes.append(LENGTH)
+                    elif op == "atk%":
+                        target_indexes.append(0)
+                    elif op == "hp%":
+                        target_indexes.append(0)
+                    elif op == "em":
+                        target_indexes.append(0)
+                    else:
+                        target_indexes.append(3*LENGTH)
+                y = self.getDistributionElixir(self.nums, self.count, self.start_count, target_indexes)
+            else:
+                y = self.getDistribution(self.nums, self.count)
             return y
         else:
+            target_indexes = []
+            nums_zero_index = 0
+            if self.elixir:
+                for idx, num in enumerate(self.nums):
+                    if num == 0:
+                        nums_zero_index = idx
+                        break
+            
+            for op in self.elixir_option:
+                if op == "crit-rate":
+                    target_indexes.append(2*LENGTH)
+                elif op == "crit-dmg":
+                    target_indexes.append(LENGTH)
+                elif op == "atk%":
+                    target_indexes.append(0)
+                elif op == "hp%":
+                    target_indexes.append(0)
+                elif op == "em":
+                    target_indexes.append(0)
+                else:
+                    target_indexes.append(nums_zero_index)
             nums_4op = []
             if not self.is_crit_dmg and not self.main_op == "crit-dmg":
                 tmp = np.copy(self.nums)
-                tmp[12:] = CRIT
+                tmp[3*LENGTH:] = CRIT
                 nums_4op.append(tmp)
             if not self.is_crit_rate and not self.main_op == "crit-rate":
                 tmp = np.copy(self.nums)
-                tmp[12:] = CRIT
+                tmp[3*LENGTH:] = CRIT
                 nums_4op.append(tmp)
             if self.score_type == "atk" and not self.is_atk and not self.main_op == "atk%":
                 tmp = np.copy(self.nums)
-                tmp[12:] = ATK
+                tmp[3*LENGTH:] = ATK
                 nums_4op.append(tmp)
             if self.score_type == "hp" and not self.is_hp and not self.main_op == "hp%":
                 tmp = np.copy(self.nums)
-                tmp[12:] = HP
+                tmp[3*LENGTH:] = HP
                 nums_4op.append(tmp)
             if self.score_type == "em" and not self.is_em and not self.main_op == "em":
                 tmp = np.copy(self.nums)
-                tmp[12:] = EM
+                tmp[3*LENGTH:] = EM
                 nums_4op.append(tmp)
-
+            
             main_probability = (7 - len(nums_4op)) / 7
             sub_probability = 0
             if len(nums_4op) != 0:
@@ -443,13 +580,22 @@ class Calculator():
 
             y = np.zeros(np.amax(CRIT) * self.count + 1)
 
-            main_y = self.getDistribution(self.nums, self.count - 1)
+            main_y = []
+            if self.elixir:
+                main_y = self.getDistributionElixir(self.nums, self.count - 1, self.start_count + 1, target_indexes)
+            else:
+                main_y = self.getDistribution(self.nums, self.count - 1)
+            
             y[0:main_y.shape[0]] += main_y * main_probability
 
             for nums in nums_4op:
-                sub_y = self.getDistribution(nums, self.count - 1)
-                for num_4th in nums[12:]:
-                    y[num_4th:num_4th + sub_y.shape[0]] += sub_y / len(nums[12:]) * sub_probability
+                sub_y = []
+                if self.elixir:
+                    sub_y = self.getDistributionElixir(nums, self.count - 1, self.start_count + 1, target_indexes)
+                else:
+                    sub_y = self.getDistribution(nums, self.count - 1)
+                for num_4th in nums[3*LENGTH:]:
+                    y[num_4th:num_4th + sub_y.shape[0]] += sub_y / len(nums[3*LENGTH:]) * sub_probability
 
             return y
 
