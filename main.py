@@ -57,10 +57,21 @@ def scan_img():
     nparr = np.frombuffer(file_data, np.uint8)
     img_cv2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
+    # Luna 1以前か以降かを取得
+    is_new = request.form.get('is_new')
+
+    # 画像サイズ取得
+    height, width = img_cv2.shape[:2]
+
+    # 一部を真っ白にする
+    img_cv2[0:height // 100 * 80, width // 2 :] = 255
+    img_cv2[0:height // 100 * 10, :] = 255
+    img_cv2[height // 100 * 30 : height // 100 * 60, :] = 255
+
     img_gray = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2GRAY)
     # 閾値の設定
-    threshold = 140
-    # 二値化(閾値140を超えた画素を255にする。)
+    threshold = 200
+    # 二値化(閾値を超えた画素を255にする。)
     ret, img_edited = cv2.threshold(img_gray, threshold, 255, cv2.THRESH_BINARY)
     
     img = img_edited.copy()
@@ -77,7 +88,7 @@ def scan_img():
     # POSTリクエストから追加のJSONデータを取得
     score_type = request.form.get('score_type')
 
-    res = ArtifactReader(img_pil, score_type)
+    res = ArtifactReader(img_pil, score_type, is_new)
 
     return jsonify({"option" : res.option,
                     "position" : res.pos,
@@ -89,7 +100,9 @@ def scan_img():
                     "is_em" : res.is_em,
                     "init" : res.init_score,
                     "score_type" : res.score_type,
-                    "level" : res.level})
+                    "level" : res.level,
+                    "active_op" : res.active_op,
+                    "active_op_value" : res.active_op_value})
 
 @app.route("/get-dist", methods=["POST"])
 def get_dist():
@@ -266,7 +279,7 @@ def get_data():
     return jsonify({"percentile" : percentile, "average" : ave, "variance" : variance, "skewness" : skewness, "kurtosis" : kurtosis})
 
 class ArtifactReader():
-    def __init__(self, img, score_type):
+    def __init__(self, img, score_type, is_new):
         self.api_key = os.getenv("GOOGLE_CLOUD_VISION_API_KEY")
         if self.api_key is None:
             print("環境変数 'GOOGLE_CLOUD_VISION_API_KEY' が設定されていません。")
@@ -304,7 +317,21 @@ class ArtifactReader():
         self.is_em = False
         self.init_score = 0
         self.score_type = score_type
+        self.is_new = is_new
         self.level = 0
+        self.active_op = None
+        self.active_op_value = 0
+
+        # Luna 1以降ならアクティブ前のオプションを分離
+        if self.is_new == 'true':
+            lines = self.result.split("\n")
+            new_result = ""
+            for line in lines:
+                if 'アクティブ' in line:
+                    (self.active_op, self.active_op_value) = self.getActiveOption(line)
+                else:
+                    new_result += (line + "\n")
+            self.result = new_result
 
         # オプション数
         self.option = len(self.find(self.result, r'\+')) - 1
@@ -344,7 +371,7 @@ class ArtifactReader():
             self.level = 0
 
     def getMainOption(self, result):
-        pos = self.getPosition(result.split("\n", 1)[1])
+        pos = self.getPosition(result.split("\n", 1)[0])
         if (pos == None):
             pos = self.getPosition(result)
         if (pos == None):
@@ -381,6 +408,30 @@ class ArtifactReader():
         for str in data:
             return float(re.sub(r'\D', '', str))
         return 0
+    
+    def getActiveOption(self, result):
+        option = 'other'
+        value = 0
+        if '攻撃力' in result and '%' in result:
+            option = 'atk%'
+            value = self.getFigure(self.find(result.replace(" ", ""), r'攻撃力\+'))
+        elif '会心率' in result:
+            option = 'crit-rate'
+            value = self.getFigure(self.find(result.replace(" ", ""), r'会心率\+'))
+        elif '会心ダメージ' in result:
+            option = 'crit-dmg'
+            value = self.getFigure(self.find(result.replace(" ", ""), r'会心ダメージ\+'))
+        elif 'HP' in result and '%' in result:
+            option = 'hp%'
+            value = self.getFigure(self.find(result.replace(" ", ""), r'HP\+'))
+        elif '元素熟知' in result:
+            option = 'em'
+            value = self.getFigure_em(self.find(result.replace(" ", ""), r'元素熟知\+'))
+        else:
+            option = 'other'
+            value = self.getFigure(self.find(result.replace(" ", ""), r'\+'))
+
+        return (option, value)
 
     def getScore_attack(self, result):
         score = 0

@@ -5,10 +5,14 @@ FROM python:3.9-slim
 EXPOSE 5000
 
 # 必要なLinuxパッケージをインストール（不要なTesseract関連を削除）
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libgl1-mesa-dri \
     libglib2.0-0 \
-    && apt-get clean
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
 
 # 作業ディレクトリを設定
 WORKDIR /app
