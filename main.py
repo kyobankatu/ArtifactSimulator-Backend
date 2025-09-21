@@ -125,6 +125,12 @@ def get_dist():
     elixir_option = []
     if elixir:
         elixir_option = data["elixir_option"]
+    is_new = bool(data['is_new'])
+    active_op = None
+    active_op_value = 0
+    if is_new:
+        active_op = data['active_op']
+        active_op_value = float(data['active_op_value'])
     bold = bool(data['bold'])
     bold_space = 5.0
     if bold:
@@ -148,7 +154,8 @@ def get_dist():
     if not is_crit_rate:
         nums[2*LENGTH : 3*LENGTH] = 0
 
-    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, elixir_option)
+    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, 
+                      start_count, score_type, elixir, elixir_option, is_new, active_op, active_op_value)
     y = calc.calculate() * 100 # 伸び幅の分布をパーセント表示に変換
     x = np.zeros(y.shape[0])
     for i in range(x.shape[0]):
@@ -215,6 +222,12 @@ def get_data():
     elixir_option = []
     if elixir:
         elixir_option = data["elixir_option"]
+    is_new = bool(data['is_new'])
+    active_op = None
+    active_op_value = 0
+    if is_new:
+        active_op = data['active_op']
+        active_op_value = float(data['active_op_value'])
 
     # NUMSをリセット
     nums = np.copy(NUMS_DEFAULT)
@@ -234,7 +247,8 @@ def get_data():
     if not is_crit_rate:
         nums[2*LENGTH : 3*LENGTH] = 0
 
-    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, elixir_option)
+    calc = Calculator(option, main_op, is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, 
+                      start_count, score_type, elixir, elixir_option, is_new, active_op, active_op_value)
     y = calc.calculate()
     x = np.zeros(y.shape[0])
     for i in range(x.shape[0]):
@@ -470,7 +484,8 @@ class ArtifactReader():
         return self.getFigure_em(self.find(result.replace(" ", ""),r'元素熟知\+')) > 0
 
 class Calculator():
-    def __init__(self, option, main_op , is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, start_count, score_type, elixir, elixir_option):
+    def __init__(self, option, main_op , is_crit_dmg, is_crit_rate, is_atk, is_hp, is_em, nums, init_score, score, count, 
+                 start_count, score_type, elixir, elixir_option, is_new, active_op, active_op_value):
         self.option = option
         self.main_op = main_op
         self.is_crit_dmg = is_crit_dmg
@@ -486,6 +501,9 @@ class Calculator():
         self.score_type = score_type
         self.elixir = elixir
         self.elixir_option = elixir_option
+        self.is_new = is_new
+        self.active_op = active_op
+        self.active_op_value = active_op_value
 
     # スコアの伸びの分布を計算 (indexが伸び幅の10倍整数)
     def getDistribution(self, nums, count):
@@ -499,40 +517,40 @@ class Calculator():
         
         return dp[count]
     
-    # スコアの伸びの分布を計算 (indexが伸び幅の10倍整数、エリクサーによる最低保証を考慮)
-    def getDistributionElixir(self, nums, count, start_count, target_indexes):
-        dp = np.zeros((count + 1, 3, max(nums) * count + 1))
-        if start_count < 4:
+    # スコアの伸びの分布を計算 (indexが伸び幅の10倍整数、エリクシルによる最低保証を考慮)
+    def getDistributionElixir(self, nums, count, start_count, target_indexes, guarantee_count):
+        dp = np.zeros((count + 1, guarantee_count + 1, max(nums) * count + 1))
+        if start_count < 6 - guarantee_count:
             dp[0, 0, 0] = 1.0
-        elif start_count == 4:
-            dp[0, 1, 0] = 1.0
         else:
-            dp[0, 2, 0] = 1.0
+            for i in range(guarantee_count):
+                if start_count == 6 - guarantee_count + i:
+                    dp[0, i + 1, 0] = 1.0
+                    break
+
         target_num_cyc = itertools.cycle(np.array([nums[x] for idx in target_indexes for x in range(idx, idx + LENGTH)]))
 
         for i in range(count):
             for num_idx, num in enumerate(nums):
                 if self.isInRange(target_indexes, LENGTH, num_idx):
-                    prev_01 = dp[i, :2, :dp[0].shape[1] - num]
-                    prev_2 = dp[i, 2, :dp[0].shape[1] - num]
-                    dp[i + 1, 1:, num:] += prev_01 / nums.shape[0]
-                    dp[i + 1, 2, num:] += prev_2 / nums.shape[0]
+                    prev_left = dp[i, :guarantee_count, :dp[0].shape[1] - num]
+                    prev_last = dp[i, guarantee_count, :dp[0].shape[1] - num]
+                    dp[i + 1, 1:, num:] += prev_left / nums.shape[0]
+                    dp[i + 1, guarantee_count, num:] += prev_last / nums.shape[0]
                 else:
-                    if i + start_count < 3:
+                    if i + start_count < 5 - guarantee_count:
                         prev = dp[i, :, :dp[0].shape[1] - num]
                         dp[i + 1, :, num:] += prev / nums.shape[0]
-                    elif i + start_count == 3:
-                        prev_12 = dp[i, 1:, :dp[0].shape[1] - num]
-                        dp[i + 1, 1:, num:] += prev_12 / nums.shape[0]
-                        target_num = next(target_num_cyc)
-                        prev_0 = dp[i, 0, :dp[0].shape[1] - target_num]
-                        dp[i + 1, 1, target_num:] += prev_0 / nums.shape[0]
                     else:
-                        prev_2 = dp[i, 2, :dp[0].shape[1] - num]
-                        dp[i + 1, 2, num:] += prev_2 / nums.shape[0]
-                        target_num = next(target_num_cyc)
-                        prev_1 = dp[i, 1, :dp[0].shape[1] - target_num]
-                        dp[i + 1, 2, target_num:] += prev_1 / nums.shape[0]
+                        for j in range(guarantee_count):
+                            if i + start_count == 5 - guarantee_count + j:
+                                prev_unchanged = dp[i, j + 1:, :dp[0].shape[1] - num]
+                                dp[i + 1, j + 1:, num:] += prev_unchanged / nums.shape[0]
+                                # 指定オプション数 (2個) = 非指定オプション数 (2個) であることを利用
+                                target_num = next(target_num_cyc)
+                                prev_changed = dp[i, j, :dp[0].shape[1] - target_num]
+                                dp[i + 1, j + 1, target_num:] += prev_changed / nums.shape[0]
+                                break
 
         return np.sum(dp[count, :], axis=0)
     
@@ -576,7 +594,7 @@ class Calculator():
                         target_indexes.append(0)
                     else:
                         target_indexes.append(3*LENGTH)
-                y = self.getDistributionElixir(self.nums, self.count, self.start_count, target_indexes)
+                y = self.getDistributionElixir(self.nums, self.count, self.start_count, target_indexes, 2)
             else:
                 y = self.getDistribution(self.nums, self.count)
             return y
@@ -603,28 +621,53 @@ class Calculator():
                 else:
                     target_indexes.append(nums_zero_index)
             nums_4op = []
-            if not self.is_crit_dmg and not self.main_op == "crit-dmg":
-                tmp = np.copy(self.nums)
-                tmp[3*LENGTH:] = CRIT
-                nums_4op.append(tmp)
-            if not self.is_crit_rate and not self.main_op == "crit-rate":
-                tmp = np.copy(self.nums)
-                tmp[3*LENGTH:] = CRIT
-                nums_4op.append(tmp)
-            if self.score_type == "atk" and not self.is_atk and not self.main_op == "atk%":
-                tmp = np.copy(self.nums)
-                tmp[3*LENGTH:] = ATK
-                nums_4op.append(tmp)
-            if self.score_type == "hp" and not self.is_hp and not self.main_op == "hp%":
-                tmp = np.copy(self.nums)
-                tmp[3*LENGTH:] = HP
-                nums_4op.append(tmp)
-            if self.score_type == "em" and not self.is_em and not self.main_op == "em":
-                tmp = np.copy(self.nums)
-                tmp[3*LENGTH:] = EM
-                nums_4op.append(tmp)
+            if self.is_new:
+                if self.active_op == "crit-dmg":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = CRIT
+                    nums_4op.append(tmp)
+                elif self.active_op == "crit-rate":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = CRIT
+                    nums_4op.append(tmp)
+                elif self.active_op == "atk%":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = ATK
+                    nums_4op.append(tmp)
+                elif self.active_op == "hp%":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = HP
+                    nums_4op.append(tmp)
+                elif self.active_op == "em":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = EM
+                    nums_4op.append(tmp)
+            else:
+                if not self.is_crit_dmg and not self.main_op == "crit-dmg":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = CRIT
+                    nums_4op.append(tmp)
+                if not self.is_crit_rate and not self.main_op == "crit-rate":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = CRIT
+                    nums_4op.append(tmp)
+                if self.score_type == "atk" and not self.is_atk and not self.main_op == "atk%":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = ATK
+                    nums_4op.append(tmp)
+                if self.score_type == "hp" and not self.is_hp and not self.main_op == "hp%":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = HP
+                    nums_4op.append(tmp)
+                if self.score_type == "em" and not self.is_em and not self.main_op == "em":
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = EM
+                    nums_4op.append(tmp)
             
             main_probability = (7 - len(nums_4op)) / 7
+            if self.is_new:
+                main_probability = 0
+
             sub_probability = 0
             if len(nums_4op) != 0:
                 sub_probability = (1 - main_probability) / len(nums_4op)
@@ -633,7 +676,7 @@ class Calculator():
 
             main_y = []
             if self.elixir:
-                main_y = self.getDistributionElixir(self.nums, self.count - 1, self.start_count + 1, target_indexes)
+                main_y = self.getDistributionElixir(self.nums, self.count - 1, self.start_count + 1, target_indexes, 2)
             else:
                 main_y = self.getDistribution(self.nums, self.count - 1)
             
@@ -642,11 +685,17 @@ class Calculator():
             for nums in nums_4op:
                 sub_y = []
                 if self.elixir:
-                    sub_y = self.getDistributionElixir(nums, self.count - 1, self.start_count + 1, target_indexes)
+                    sub_y = self.getDistributionElixir(nums, self.count - 1, self.start_count + 1, target_indexes, 2)
                 else:
                     sub_y = self.getDistribution(nums, self.count - 1)
-                for num_4th in nums[3*LENGTH:]:
-                    y[num_4th:num_4th + sub_y.shape[0]] += sub_y / len(nums[3*LENGTH:]) * sub_probability
+
+                if self.is_new:
+                    # is_newがTrueの場合、len(nums_4op)=1であることを利用
+                    value = int(self.active_op_value) * 10
+                    y[value:value + sub_y.shape[0]] += sub_y
+                else:
+                    for num_4th in nums[3*LENGTH:]:
+                        y[num_4th:num_4th + sub_y.shape[0]] += sub_y / len(nums[3*LENGTH:]) * sub_probability
 
             return y
 
