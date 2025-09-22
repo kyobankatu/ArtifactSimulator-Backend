@@ -333,7 +333,7 @@ class ArtifactReader():
         self.score_type = score_type
         self.is_new = is_new
         self.level = 0
-        self.active_op = None
+        self.active_op = "else"
         self.active_op_value = 0
 
         # Luna 1以降ならアクティブ前のオプションを分離
@@ -431,7 +431,7 @@ class ArtifactReader():
             value = self.getFigure(self.find(result.replace(" ", ""), r'攻撃力\+'))
         elif '会心率' in result:
             option = 'crit-rate'
-            value = self.getFigure(self.find(result.replace(" ", ""), r'会心率\+'))
+            value = self.getFigure(self.find(result.replace(" ", ""), r'会心率\+')) * 2
         elif '会心ダメージ' in result:
             option = 'crit-dmg'
             value = self.getFigure(self.find(result.replace(" ", ""), r'会心ダメージ\+'))
@@ -440,9 +440,9 @@ class ArtifactReader():
             value = self.getFigure(self.find(result.replace(" ", ""), r'HP\+'))
         elif '元素熟知' in result:
             option = 'em'
-            value = self.getFigure_em(self.find(result.replace(" ", ""), r'元素熟知\+'))
+            value = self.getFigure_em(self.find(result.replace(" ", ""), r'元素熟知\+')) / 4
         else:
-            option = 'other'
+            option = 'else'
             value = self.getFigure(self.find(result.replace(" ", ""), r'\+'))
 
         return (option, value)
@@ -641,6 +641,10 @@ class Calculator():
                 elif self.active_op == "em":
                     tmp = np.copy(self.nums)
                     tmp[3*LENGTH:] = EM
+                    nums_4op.append(tmp)
+                else:
+                    tmp = np.copy(self.nums)
+                    tmp[3*LENGTH:] = 0
                     nums_4op.append(tmp)
             else:
                 if not self.is_crit_dmg and not self.main_op == "crit-dmg":
