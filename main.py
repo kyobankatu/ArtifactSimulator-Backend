@@ -621,31 +621,38 @@ class Calculator():
                 else:
                     target_indexes.append(nums_zero_index)
             nums_4op = []
+            active_op_score = 0
             if self.is_new:
                 if self.active_op == "crit-dmg":
                     tmp = np.copy(self.nums)
                     tmp[3*LENGTH:] = CRIT
                     nums_4op.append(tmp)
+                    active_op_score = self.active_op_value
                 elif self.active_op == "crit-rate":
                     tmp = np.copy(self.nums)
                     tmp[3*LENGTH:] = CRIT
                     nums_4op.append(tmp)
+                    active_op_score = self.active_op_value * 2
                 elif self.active_op == "atk%":
                     tmp = np.copy(self.nums)
                     tmp[3*LENGTH:] = ATK
                     nums_4op.append(tmp)
+                    active_op_score = self.active_op_value
                 elif self.active_op == "hp%":
                     tmp = np.copy(self.nums)
                     tmp[3*LENGTH:] = HP
                     nums_4op.append(tmp)
+                    active_op_score = self.active_op_value
                 elif self.active_op == "em":
                     tmp = np.copy(self.nums)
                     tmp[3*LENGTH:] = EM
                     nums_4op.append(tmp)
+                    active_op_score = self.active_op_value / 4
                 else:
                     tmp = np.copy(self.nums)
                     tmp[3*LENGTH:] = 0
                     nums_4op.append(tmp)
+                    active_op_score = self.active_op_value
             else:
                 if not self.is_crit_dmg and not self.main_op == "crit-dmg":
                     tmp = np.copy(self.nums)
@@ -695,8 +702,8 @@ class Calculator():
 
                 if self.is_new:
                     # is_newがTrueの場合、len(nums_4op)=1であることを利用
-                    value = int(self.active_op_value) * 10
-                    y[value:value + sub_y.shape[0]] += sub_y
+                    score_10 = active_op_score * 10
+                    y[score_10:score_10 + sub_y.shape[0]] += sub_y
                 else:
                     for num_4th in nums[3*LENGTH:]:
                         y[num_4th:num_4th + sub_y.shape[0]] += sub_y / len(nums[3*LENGTH:]) * sub_probability
