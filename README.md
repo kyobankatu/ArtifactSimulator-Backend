@@ -27,6 +27,25 @@ docker run -p 5000:5000 -e GOOGLE_CLOUD_VISION_API_KEY=<your-api-key> artifact-s
 |--------|------|
 | `GOOGLE_CLOUD_VISION_API_KEY` | Google Cloud Vision API のAPIキー（必須） |
 
+## k3s デプロイ
+
+バックエンドは外部公開せず、k3s 内部の `ClusterIP` Service として動かします。
+フロントエンド nginx の `/api/` proxy から `artifact-backend` Service 経由で呼び出します。
+
+```bash
+kubectl -n artifact-simulator create secret generic artifact-backend-secret \
+  --from-literal=GOOGLE_CLOUD_VISION_API_KEY='<your-api-key>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f k8s/artifact-simulator-backend.yaml
+```
+
+```bash
+docker build -t artifact-simulator-backend:latest .
+```
+
+`k8s/artifact-backend-secret.example.yaml` は Secret の形を示すサンプルです。
+実際のAPIキーを含む YAML は Git 管理しないでください。
+
 ## API
 
 ### `POST /scan-img`
