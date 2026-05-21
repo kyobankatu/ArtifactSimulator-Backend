@@ -378,9 +378,7 @@ class ArtifactReader():
             self.init_score = self.getScore_em(self.result)
         
         # レベル
-        self.level_str = self.find(self.result, r'\+')[0].split("\n")[0]
-        self.level_str.replace("D", "0")
-        self.level = int(self.level_str)
+        self.level = self.getLevel(self.result)
         if self.level < 0 or self.level > 20:
             self.level = 0
 
@@ -411,6 +409,16 @@ class ArtifactReader():
           
     def find(self, result, str):
         return [result[m.start()+len(str)-1:m.start()+len(str)+4] for m in re.finditer(str, result)]
+
+    def getLevel(self, result):
+        normalized = result.replace("D", "0")
+        for line in normalized.splitlines():
+            match = re.fullmatch(r'\+([0-9]{1,2})', line.strip())
+            if match:
+                level = int(match.group(1))
+                if 0 <= level <= 20:
+                    return level
+        return 0
 
     def getFigure(self, data):
         for str in data:
@@ -702,7 +710,7 @@ class Calculator():
 
                 if self.is_new:
                     # is_newがTrueの場合、len(nums_4op)=1であることを利用
-                    score_10 = active_op_score * 10
+                    score_10 = int(round(active_op_score * 10))
                     y[score_10:score_10 + sub_y.shape[0]] += sub_y
                 else:
                     for num_4th in nums[3*LENGTH:]:
