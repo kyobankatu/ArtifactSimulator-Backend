@@ -13,6 +13,7 @@ import re
 import requests
 import base64
 import itertools
+import logging
 import japanize_matplotlib
 
 # 定数
@@ -43,6 +44,7 @@ MAIN_OP = [("HP", "hp%"),
 POSITION = ["生の花", "死の羽", "時の砂", "空の杯", "理の冠"]
 
 app = Flask(__name__)
+app.logger.setLevel(logging.INFO)
 
 CORS(app)
 
@@ -64,15 +66,20 @@ def scan_img():
     height, width = img_cv2.shape[:2]
 
     # 一部を真っ白にする
-    img_cv2[0:height // 100 * 80, width // 2 :] = 255
-    img_cv2[0:height // 100 * 10, :] = 255
-    img_cv2[height // 100 * 30 : height // 100 * 60, :] = 255
+    # img_cv2[0:height // 100 * 80, width // 2 :] = 255
+    # img_cv2[0:height // 100 * 10, :] = 255
+    # img_cv2[height // 100 * 30 : height // 100 * 60, :] = 255
 
-    img_gray = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2GRAY)
-    # 閾値の設定
-    threshold = 200
-    # 二値化(閾値を超えた画素を255にする。)
-    ret, img_edited = cv2.threshold(img_gray, threshold, 255, cv2.THRESH_BINARY)
+    # 明度だけを局所コントラスト補正して OCR に渡す。
+    img_lab = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2LAB)
+    lightness, channel_a, channel_b = cv2.split(img_lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    lightness = clahe.apply(lightness)
+    img_edited = cv2.merge((lightness, channel_a, channel_b))
+    img_edited = cv2.cvtColor(img_edited, cv2.COLOR_LAB2BGR)
+    img_edited = cv2.convertScaleAbs(img_edited, alpha=1.2, beta=8)
+    blurred = cv2.GaussianBlur(img_edited, (0, 0), 1.0)
+    img_edited = cv2.addWeighted(img_edited, 1.4, blurred, -0.4, 0)
     
     img = img_edited.copy()
     if img.ndim == 2: # モノクロ
@@ -88,7 +95,32 @@ def scan_img():
     # POSTリクエストから追加のJSONデータを取得
     score_type = request.form.get('score_type')
 
+    app.logger.info(
+        "scan-img request: image_shape=%s score_type=%s is_new=%s",
+        img_cv2.shape if img_cv2 is not None else None,
+        score_type,
+        is_new,
+    )
+
     res = ArtifactReader(img_pil, score_type, is_new)
+
+    app.logger.info(
+        "scan-img parsed: option=%s position=%s main_op=%s "
+        "crit_dmg=%s crit_rate=%s atk=%s hp=%s em=%s init=%s level=%s "
+        "active_op=%s active_op_value=%s",
+        res.option,
+        res.pos,
+        res.main_op,
+        res.is_crit_dmg,
+        res.is_crit_rate,
+        res.is_atk,
+        res.is_hp,
+        res.is_em,
+        res.init_score,
+        res.level,
+        res.active_op,
+        res.active_op_value,
+    )
 
     return jsonify({"option" : res.option,
                     "position" : res.pos,
@@ -320,6 +352,11 @@ class ArtifactReader():
 
         self.response = requests.post(self.url, json=self.request_payload)
         self.result = self.response.json()["responses"][0]["textAnnotations"][0]["description"]
+        app.logger.info(
+            "vision ocr result: status_code=%s text=%r",
+            self.response.status_code,
+            self.result,
+        )
 
         self.option = 0
         self.pos = None
@@ -339,13 +376,31 @@ class ArtifactReader():
         # Luna 1以降ならアクティブ前のオプションを分離
         if self.is_new == 'true':
             lines = self.result.split("\n")
-            new_result = ""
+            new_lines = []
             for line in lines:
                 if 'アクティブ' in line:
-                    (self.active_op, self.active_op_value) = self.getActiveOption(line)
+                    active_line = line
+                    if '+' not in active_line:
+                        for index in range(len(new_lines) - 1, -1, -1):
+                            if '+' in new_lines[index]:
+                                active_line = new_lines.pop(index)
+                                break
+                    app.logger.info(
+                        "active option detection: marker_line=%r option_line=%r",
+                        line,
+                        active_line,
+                    )
+                    (self.active_op, self.active_op_value) = self.getActiveOption(active_line)
                 else:
-                    new_result += (line + "\n")
-            self.result = new_result
+                    new_lines.append(line)
+            self.result = "\n".join(new_lines)
+            app.logger.info(
+                "vision ocr result after active-option removal: active_op=%s "
+                "active_op_value=%s text=%r",
+                self.active_op,
+                self.active_op_value,
+                self.result,
+            )
 
         # オプション数
         self.option = len(self.find(self.result, r'\+')) - 1
@@ -395,10 +450,28 @@ class ArtifactReader():
             return ("atk", "死の羽")
         
         # 時計、杯、冠の場合
-        main_op = result.split("\n")[2]
+        lines = result.split("\n")
+        main_op = lines[2]
+        app.logger.info(
+            "main option detection: position=%s first_line=%r main_op_line=%r lines=%r",
+            pos,
+            lines[0] if len(lines) > 0 else "",
+            main_op,
+            lines,
+        )
         for op in MAIN_OP:
             if op[0] in main_op:
+                app.logger.info(
+                    "main option detected: keyword=%s value=%s position=%s",
+                    op[0],
+                    op[1],
+                    pos,
+                )
                 return (op[1], pos)
+        app.logger.info(
+            "main option fallback: main_op_line=%r fallback_main_op=hp fallback_position=生の花",
+            main_op,
+        )
         return ("hp", "生の花")
 
     def getPosition(self, text):
